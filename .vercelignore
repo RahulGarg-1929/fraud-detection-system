@@ -1,0 +1,37 @@
+# Exclude files and directories that should not be deployed to Vercel
+
+# Python backend (deployed to Railway instead)
+api/
+src/
+scripts/
+models/
+data/
+reports/
+docs/
+
+# Python artifacts
+__pycache__/
+*.pyc
+*.pyo
+*.pkl
+*.parquet
+requirements.txt
+Dockerfile
+docker-compose*.yml
+railway.toml
+railway.json
+
+# Development files
+.env
+.env.*
+!.env.example
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Git
+.git/
+.gitattributes
