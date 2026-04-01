@@ -130,4 +130,4 @@ MIN_RECALL_TARGET = 0.50          # Minimum acceptable recall
 # ==============================================================================
 API_HOST = "0.0.0.0"
 API_PORT = 8000
-MODEL_NAME = "lightgbm_best"      # Default model to load for API serving
+MODEL_NAME = None      # Default model to load for API serving
