@@ -38,6 +38,7 @@ class FraudModelService:
         Load a trained model and all preprocessing artifacts.
         Downloads from HuggingFace if not found locally.
         """
+        import traceback
         if model_name is None:
             model_name = MODEL_NAME
 
@@ -66,6 +67,7 @@ class FraudModelService:
                     logger.info(f"Downloaded: {filename}")
         except Exception as e:
             logger.warning(f"HuggingFace download failed: {e}")
+            logger.warning(traceback.format_exc())
 
         # --- rest of the original load logic ---
         model_path = self.model_dir / f"{model_name}.pkl"
