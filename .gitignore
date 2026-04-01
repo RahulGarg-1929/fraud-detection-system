@@ -1,0 +1,30 @@
+@"
+# Large Data Files (>100MB)
+*.zip
+ieee-fraud-detection/
+train_transaction.csv
+train_identity.csv
+test_transaction.csv
+test_identity.csv
+sample_submission.csv
+data/processed/*.parquet
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+"@ | Out-File -Encoding UTF8 .gitignore
