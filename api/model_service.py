@@ -36,15 +36,41 @@ class FraudModelService:
     def load(self, model_name: str = None):
         """
         Load a trained model and all preprocessing artifacts.
-        Falls back to demo mode if no model files are found.
+        Downloads from HuggingFace if not found locally.
         """
         if model_name is None:
             model_name = MODEL_NAME
 
+        # --- Download from HuggingFace if files are missing ---
+        try:
+            from huggingface_hub import hf_hub_download
+            import os
+            REPO_ID = "gargrahul2902/fraud-detection-models"
+            HF_FILES = [
+                "lightgbm_best.pkl",
+                "xgboost_best.pkl",
+                "logistic_regression.pkl",
+                "preprocessing_artifacts.pkl",
+                "optimal_thresholds.pkl",
+            ]
+            os.makedirs(self.model_dir, exist_ok=True)
+            for filename in HF_FILES:
+                local_path = self.model_dir / filename
+                if not local_path.exists():
+                    logger.info(f"Downloading {filename}...")
+                    hf_hub_download(
+                        repo_id=REPO_ID,
+                        filename=filename,
+                        local_folder=str(self.model_dir)
+                    )
+                    logger.info(f"Downloaded: {filename}")
+        except Exception as e:
+            logger.warning(f"HuggingFace download failed: {e}")
+
+        # --- rest of the original load logic ---
         model_path = self.model_dir / f"{model_name}.pkl"
 
         if not model_path.exists():
-            # Try alternative names
             try:
                 alternatives = list(self.model_dir.glob("*.pkl"))
             except (OSError, FileNotFoundError):
@@ -58,24 +84,20 @@ class FraudModelService:
                 model_path = model_files[0]
                 logger.info(f"Model '{model_name}' not found. Using: {model_path.name}")
             else:
-                # No models found — activate demo mode
                 logger.warning("No trained model found. Starting in DEMO mode with heuristic scoring.")
                 self._activate_demo_mode()
                 return
 
-        # Load the model
         self.model = joblib.load(model_path)
         self.model_name = model_path.stem
         logger.info(f"Loaded model: {self.model_name} ({type(self.model).__name__})")
 
-        # Load preprocessing artifacts
         preprocess_path = self.model_dir / "preprocessing_artifacts.pkl"
         if preprocess_path.exists():
             self.preprocessor = joblib.load(preprocess_path)
             self.feature_cols = self.preprocessor.get("feature_cols", [])
             logger.info(f"Loaded preprocessing artifacts ({len(self.feature_cols)} features)")
 
-        # Load optimal threshold
         threshold_path = self.model_dir / "optimal_thresholds.pkl"
         if threshold_path.exists():
             thresholds = joblib.load(threshold_path)
@@ -89,7 +111,6 @@ class FraudModelService:
 
         logger.info(f"Using threshold: {self.threshold:.4f}")
 
-        # Load model comparison for info endpoint
         comparison_path = self.model_dir / "model_comparison.json"
         if comparison_path.exists():
             import json
@@ -116,7 +137,7 @@ class FraudModelService:
             "Recall": 0.72,
             "F1": 0.78,
         }]
-        logger.info("Demo mode activated — predictions use rule-based heuristics.")
+        logger.info("Demo mode activated - predictions use rule-based heuristics.")
 
     @property
     def is_loaded(self) -> bool:
@@ -133,13 +154,9 @@ class FraudModelService:
         if self._demo_mode:
             return df
 
-        # ── Inline Feature Engineering ──
-        # Replicate the key features created during training so the model
-        # receives meaningful values instead of zeros for engineered columns.
         amt = float(df["TransactionAmt"].iloc[0]) if "TransactionAmt" in df.columns else 0
         dt = int(df["TransactionDT"].iloc[0]) if "TransactionDT" in df.columns else 86400
 
-        # Behavioral features (single-transaction approximations)
         df["amt_mean_by_card"] = amt
         df["amt_std_by_card"] = 0.0
         df["amt_median_by_card"] = amt
@@ -152,14 +169,12 @@ class FraudModelService:
         df["amt_deviation_from_median"] = 0.0
         df["is_high_amount"] = int(amt > 500)
 
-        # Velocity features (single-txn defaults)
         for window in ["1h", "6h", "24h", "7d"]:
             df[f"txn_count_{window}"] = 1
             df[f"amt_sum_{window}"] = amt
         df["velocity_ratio_1h_24h"] = 1.0
         df["velocity_ratio_1h_7d"] = 1.0
 
-        # Temporal risk features
         hour_of_day = (dt // 3600) % 24
         day_of_week = (dt // 86400) % 7
         df["hour_of_day"] = hour_of_day
@@ -167,11 +182,9 @@ class FraudModelService:
         df["is_night_txn"] = int(0 <= hour_of_day < 6)
         df["is_weekend"] = int(day_of_week >= 5)
 
-        # Amount-derived risk features
         df["is_round_amount"] = int(amt % 1 == 0)
         df["log_amount"] = float(np.log1p(amt))
 
-        # Risk score features (use overall fraud rate baseline ~3.5%)
         baseline_fraud_rate = 0.035
         df["email_domain_risk"] = baseline_fraud_rate
         df["r_email_domain_risk"] = baseline_fraud_rate
@@ -181,7 +194,6 @@ class FraudModelService:
         df["addr_change"] = 0
         df["product_risk"] = baseline_fraud_rate
 
-        # Aggregate features (single-transaction defaults)
         df["card_total_txn"] = 1
         df["card_avg_amt"] = amt
         df["card_max_amt"] = amt
@@ -193,7 +205,6 @@ class FraudModelService:
         df["card_unique_devices"] = 1
         df["card_addr_frequency"] = 1
 
-        # ── Label Encoding ──
         if self.preprocessor and "encoders" in self.preprocessor:
             encoders = self.preprocessor["encoders"]
             for col, le in encoders.items():
@@ -205,14 +216,12 @@ class FraudModelService:
                         le.classes_ = np.append(le.classes_, "Unknown")
                     df[col] = le.transform(df[col])
 
-        # Fill remaining missing values
         for col in df.columns:
             if df[col].dtype == object:
                 df[col] = 0
             else:
                 df[col] = df[col].fillna(0)
 
-        # Align to expected feature columns
         if self.feature_cols:
             for col in self.feature_cols:
                 if col not in df.columns:
@@ -234,7 +243,6 @@ class FraudModelService:
         if self._demo_mode:
             return self._demo_predict(transaction_data)
 
-        # --- Real model prediction ---
         X = self.prepare_features(transaction_data)
         fraud_probability = float(self.model.predict_proba(X)[0, 1])
         is_fraud = fraud_probability >= self.threshold
@@ -260,19 +268,14 @@ class FraudModelService:
             "explanation": explanation.get("human_readable_explanation", []),
         }
 
-    # ------------------------------------------------------------------
-    # Demo / Heuristic prediction
-    # ------------------------------------------------------------------
     def _demo_predict(self, txn: Dict[str, Any]) -> Dict[str, Any]:
         """
         Generate a realistic-looking fraud prediction using rule-based heuristics.
-        Considers: amount, product code, device type, email domain, time of day, etc.
         """
         risk_score = 0.0
         risk_factors: List[Dict[str, Any]] = []
         explanations: List[str] = []
 
-        # --- Amount scoring ---
         amt = float(txn.get("TransactionAmt", 0))
         if amt >= 10000:
             amt_contrib = 0.30
@@ -293,11 +296,10 @@ class FraudModelService:
             "impact": f"TransactionAmt=${amt:.2f} {'increases' if amt_contrib > 0 else 'decreases'} fraud risk by {abs(amt_contrib):.4f}",
         })
         if amt_contrib > 0:
-            explanations.append(f"⚠️ High transaction amount (${amt:.2f}) increases fraud risk")
+            explanations.append(f"High transaction amount (${amt:.2f}) increases fraud risk")
         else:
-            explanations.append(f"✅ Normal transaction amount (${amt:.2f})")
+            explanations.append(f"Normal transaction amount (${amt:.2f})")
 
-        # --- Product code scoring ---
         product = str(txn.get("ProductCD", "W"))
         product_scores = {"W": -0.05, "H": 0.12, "C": 0.15, "S": 0.08, "R": 0.18}
         prod_contrib = product_scores.get(product, 0.05)
@@ -310,9 +312,8 @@ class FraudModelService:
             "impact": f"ProductCD='{product}' {'increases' if prod_contrib > 0 else 'decreases'} fraud risk by {abs(prod_contrib):.4f}",
         })
         if prod_contrib > 0.05:
-            explanations.append(f"⚠️ Product code '{product}' is associated with higher fraud rates")
+            explanations.append(f"Product code '{product}' is associated with higher fraud rates")
 
-        # --- Card type scoring ---
         card_type = str(txn.get("card6", "debit")).lower()
         card_contrib = 0.08 if card_type == "credit" else -0.04
         risk_score += card_contrib
@@ -324,7 +325,6 @@ class FraudModelService:
             "impact": f"card6='{card_type}' {'increases' if card_contrib > 0 else 'decreases'} fraud risk by {abs(card_contrib):.4f}",
         })
 
-        # --- Device type scoring ---
         device = str(txn.get("DeviceType", "desktop")).lower()
         device_contrib = 0.07 if device == "mobile" else -0.03
         risk_score += device_contrib
@@ -336,9 +336,8 @@ class FraudModelService:
             "impact": f"DeviceType='{device}' {'increases' if device_contrib > 0 else 'decreases'} fraud risk by {abs(device_contrib):.4f}",
         })
         if device == "mobile":
-            explanations.append(f"⚠️ Mobile device used — slightly higher fraud risk")
+            explanations.append("Mobile device used - slightly higher fraud risk")
 
-        # --- Email domain scoring ---
         email = str(txn.get("P_emaildomain", "gmail.com")).lower()
         safe_domains = {"gmail.com", "yahoo.com", "hotmail.com", "outlook.com", "aol.com"}
         risky_domains = {"protonmail.com", "mail.com", "yandex.com", "tempmail.com"}
@@ -357,14 +356,13 @@ class FraudModelService:
             "impact": f"P_emaildomain='{email}' {'increases' if email_contrib > 0 else 'decreases'} fraud risk by {abs(email_contrib):.4f}",
         })
         if email_contrib > 0:
-            explanations.append(f"⚠️ Email domain '{email}' is associated with elevated fraud risk")
+            explanations.append(f"Email domain '{email}' is associated with elevated fraud risk")
 
-        # --- Time of day scoring (TransactionDT) ---
         dt = int(txn.get("TransactionDT", 86400))
         hour_of_day = (dt % 86400) / 3600
         if hour_of_day < 5 or hour_of_day > 23:
             time_contrib = 0.10
-            explanations.append("⚠️ Transaction at unusual hour (late night/early morning)")
+            explanations.append("Transaction at unusual hour (late night/early morning)")
         else:
             time_contrib = -0.03
         risk_score += time_contrib
@@ -373,10 +371,9 @@ class FraudModelService:
             "value": float(dt),
             "shap_value": round(time_contrib, 4),
             "direction": "increases" if time_contrib > 0 else "decreases",
-            "impact": f"Transaction hour ≈ {hour_of_day:.0f}:00 {'increases' if time_contrib > 0 else 'decreases'} fraud risk",
+            "impact": f"Transaction hour ~ {hour_of_day:.0f}:00 {'increases' if time_contrib > 0 else 'decreases'} fraud risk",
         })
 
-        # --- Card brand scoring ---
         card_brand = str(txn.get("card4", "visa")).lower()
         brand_scores = {"visa": -0.02, "mastercard": 0.03, "discover": 0.06, "american express": -0.01}
         brand_contrib = brand_scores.get(card_brand, 0.04)
@@ -389,10 +386,9 @@ class FraudModelService:
             "impact": f"card4='{card_brand}' {'increases' if brand_contrib > 0 else 'decreases'} fraud risk by {abs(brand_contrib):.4f}",
         })
 
-        # --- card1 (customer ID) scoring — add deterministic noise ---
         card1 = int(txn.get("card1", 0))
         card_hash = int(hashlib.md5(str(card1).encode()).hexdigest()[:8], 16)
-        card1_noise = (card_hash % 1000) / 10000.0 - 0.05  # range [-0.05, 0.05]
+        card1_noise = (card_hash % 1000) / 10000.0 - 0.05
         risk_score += card1_noise
         risk_factors.append({
             "feature": "card1",
@@ -402,11 +398,10 @@ class FraudModelService:
             "impact": f"card1={card1} historical risk contribution: {card1_noise:.4f}",
         })
 
-        # --- addr1 scoring ---
         addr1 = float(txn.get("addr1", 0))
         if addr1 == 0:
             addr_contrib = 0.08
-            explanations.append("⚠️ Missing billing address information")
+            explanations.append("Missing billing address information")
         elif addr1 > 400:
             addr_contrib = 0.04
         else:
@@ -420,8 +415,6 @@ class FraudModelService:
             "impact": f"addr1={addr1:.0f} {'increases' if addr_contrib > 0 else 'decreases'} fraud risk by {abs(addr_contrib):.4f}",
         })
 
-        # --- Clamp and convert to probability ---
-        # Apply sigmoid-like transformation for a natural probability curve
         fraud_probability = 1.0 / (1.0 + np.exp(-6.0 * (risk_score - 0.15)))
         fraud_probability = float(np.clip(fraud_probability, 0.01, 0.99))
 
@@ -436,14 +429,12 @@ class FraudModelService:
         else:
             risk_level = "low"
 
-        # Sort risk factors by absolute SHAP value
         risk_factors.sort(key=lambda x: abs(x["shap_value"]), reverse=True)
 
-        # Add summary explanation
         if is_fraud:
-            explanations.insert(0, f"🚨 Transaction flagged as FRAUDULENT (probability: {fraud_probability:.1%})")
+            explanations.insert(0, f"Transaction flagged as FRAUDULENT (probability: {fraud_probability:.1%})")
         else:
-            explanations.insert(0, f"✅ Transaction appears LEGITIMATE (probability: {fraud_probability:.1%})")
+            explanations.insert(0, f"Transaction appears LEGITIMATE (probability: {fraud_probability:.1%})")
 
         return {
             "fraud_probability": fraud_probability,
