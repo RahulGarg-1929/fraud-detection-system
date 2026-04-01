@@ -1,4 +1,9 @@
-# Large Data Files (>100MB)
+# Version control
+.git
+.gitignore
+.gitattributes
+
+# Large data files
 *.zip
 ieee-fraud-detection/
 train_transaction.csv
@@ -6,9 +11,9 @@ train_identity.csv
 test_transaction.csv
 test_identity.csv
 sample_submission.csv
-data/processed/*.parquet
+data/
 
-# Python
+# Python artifacts
 __pycache__/
 *.pyc
 *.pyo
@@ -18,6 +23,26 @@ build/
 .venv/
 venv/
 
+# Frontend (built separately)
+frontend/
+
+# Docs
+docs/
+*.md
+
+# Reports
+reports/
+
+# CI/CD
+.github/
+
+# Test files
+tests/
+
+# Environment files
+.env
+.env.*
+
 # OS
 .DS_Store
 Thumbs.db
@@ -26,15 +51,6 @@ Thumbs.db
 .vscode/
 .idea/
 *.swp
-
-# Environment variables
-.env
-.env.local
-.env.*.local
-
-# Node / Frontend
-frontend/node_modules/
-frontend/dist/
 
 # Logs
 *.log
