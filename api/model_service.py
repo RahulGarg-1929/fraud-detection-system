@@ -41,6 +41,11 @@ class FraudModelService:
         import traceback
         if model_name is None:
             model_name = MODEL_NAME
+        
+        # If still None, activate demo mode
+        if model_name is None:
+            self._activate_demo_mode()
+            return
 
         # --- Download from HuggingFace if files are missing ---
         try:
