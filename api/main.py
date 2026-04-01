@@ -43,7 +43,9 @@ async def lifespan(app: FastAPI):
         else:
             logger.info("Model loaded successfully!")
     except Exception as e:
+        import traceback
         logger.error(f"Failed to load model: {e}")
+        logger.error(traceback.format_exc())
         logger.warning("API starting without model. /predict will not work.")
     yield
     logger.info("Shutting down Fraud Detection API...")
