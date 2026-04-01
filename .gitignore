@@ -1,4 +1,3 @@
-@"
 # Large Data Files (>100MB)
 *.zip
 ieee-fraud-detection/
@@ -27,4 +26,12 @@ Thumbs.db
 .vscode/
 .idea/
 *.swp
-"@ | Out-File -Encoding UTF8 .gitignore
+
+# Environment — never commit secrets
+.env
+.env.local
+.env.*.local
+
+# Node / frontend build
+frontend/node_modules/
+frontend/dist/
